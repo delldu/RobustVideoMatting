@@ -5,6 +5,7 @@ from torch.nn import functional as F
 """
 Adopted from <https://github.com/wuhuikai/DeepGuidedFilter/>
 """
+import pdb
 
 class DeepGuidedFilterRefiner(nn.Module):
     def __init__(self, hid_channels=16):
@@ -55,6 +56,10 @@ class DeepGuidedFilterRefiner(nn.Module):
         return fgr, pha
     
     def forward(self, fine_src, base_src, base_fgr, base_pha, base_hid):
+        # fine_src.size(), base_src.size(), base_fgr.size(), base_pha.size(), base_hid.size()
+        # [1, 1, 3, 1080, 1920], [1, 1, 3, 288, 512], [1, 1, 3, 288, 512],[1, 1, 1, 288, 512],
+        # [1, 1, 16, 288, 512]
+
         if fine_src.ndim == 5:
             return self.forward_time_series(fine_src, base_src, base_fgr, base_pha, base_hid)
         else:

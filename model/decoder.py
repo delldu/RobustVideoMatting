@@ -3,6 +3,7 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Tuple, Optional
+import pdb
 
 class RecurrentDecoder(nn.Module):
     def __init__(self, feature_channels, decoder_channels):
@@ -13,11 +14,20 @@ class RecurrentDecoder(nn.Module):
         self.decode2 = UpsamplingBlock(decoder_channels[0], feature_channels[1], 3, decoder_channels[1])
         self.decode1 = UpsamplingBlock(decoder_channels[1], feature_channels[0], 3, decoder_channels[2])
         self.decode0 = OutputBlock(decoder_channels[2], 3, decoder_channels[3])
+        # feature_channels = [64, 256, 512, 256]
+        # decoder_channels = [128, 64, 32, 16]
 
     def forward(self,
                 s0: Tensor, f1: Tensor, f2: Tensor, f3: Tensor, f4: Tensor,
                 r1: Optional[Tensor], r2: Optional[Tensor],
                 r3: Optional[Tensor], r4: Optional[Tensor]):
+
+        # pp s0.size(), f1.size(), f2.size(), f3.size(), f4.size()
+        # ([1, 1, 3, 288, 512],
+        # [1, 1, 64, 144, 256],
+        # [1, 1, 256, 72, 128],
+        # [1, 1, 512, 36, 64],
+        # [1, 1, 256, 18, 32])
         s1, s2, s3 = self.avgpool(s0)
         x4, r4 = self.decode4(f4, r4)
         x3, r3 = self.decode3(x4, f3, s3, r3)
@@ -194,7 +204,9 @@ class Projection(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, 1)
-    
+        # in_channels = 16
+        # out_channels = 4
+
     def forward_single_frame(self, x):
         return self.conv(x)
     

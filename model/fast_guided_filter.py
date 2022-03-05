@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-
+import pdb
 """
 Adopted from <https://github.com/wuhuikai/DeepGuidedFilter/>
 """
@@ -12,6 +12,8 @@ class FastGuidedFilterRefiner(nn.Module):
         self.guilded_filter = FastGuidedFilter(1)
     
     def forward_single_frame(self, fine_src, base_src, base_fgr, base_pha):
+        pdb.set_trace()
+
         fine_src_gray = fine_src.mean(1, keepdim=True)
         base_src_gray = base_src.mean(1, keepdim=True)
         
@@ -23,6 +25,8 @@ class FastGuidedFilterRefiner(nn.Module):
         return fgr, pha
     
     def forward_time_series(self, fine_src, base_src, base_fgr, base_pha):
+        pdb.set_trace()
+
         B, T = fine_src.shape[:2]
         fgr, pha = self.forward_single_frame(
             fine_src.flatten(0, 1),

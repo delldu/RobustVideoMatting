@@ -1,4 +1,5 @@
 from torch import nn
+import pdb
 
 class LRASPP(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -13,6 +14,8 @@ class LRASPP(nn.Module):
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
             nn.Sigmoid()
         )
+        # in_channels = 2048
+        # out_channels = 256
         
     def forward_single_frame(self, x):
         return self.aspp1(x) * self.aspp2(x)
@@ -23,6 +26,7 @@ class LRASPP(nn.Module):
         return x
     
     def forward(self, x):
+        # x.size() -- [1, 1, 2048, 18, 32]
         if x.ndim == 5:
             return self.forward_time_series(x)
         else:

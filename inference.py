@@ -21,6 +21,8 @@ from tqdm.auto import tqdm
 
 from inference_utils import VideoReader, VideoWriter, ImageSequenceReader, ImageSequenceWriter
 
+import pdb
+
 def convert_video(model,
                   input_source: str,
                   input_resize: Optional[Tuple[int, int]] = None,
@@ -61,6 +63,20 @@ def convert_video(model,
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
     
+    # input_source = 'videos/jensen.mp4'
+    # input_resize = None
+    # downsample_ratio = None
+    # output_type = 'video'
+    # output_composition = 'output/composition.mp4'
+    # output_alpha = 'output/alpha.mp4'
+    # output_foreground = 'output/foreground.mp4'
+    # output_video_mbps = 4
+    # seq_chunk = 1
+    # num_workers = 0
+    # progress = True
+    # device = 'cuda'
+    # dtype = torch.float32
+
     # Initialize transform
     if input_resize is not None:
         transform = transforms.Compose([
@@ -79,6 +95,7 @@ def convert_video(model,
     
     # Initialize writers
     if output_type == 'video':
+        # ---->>>>>>>>>>>>>>>>>>
         frame_rate = source.frame_rate if isinstance(source, VideoReader) else 30
         output_video_mbps = 1 if output_video_mbps is None else output_video_mbps
         if output_composition is not None:
@@ -112,11 +129,13 @@ def convert_video(model,
         device = param.device
     
     if (output_composition is not None) and (output_type == 'video'):
-        bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
+        # bgr = torch.tensor([120, 255, 155], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
+        bgr = torch.tensor([0, 255, 0], device=device, dtype=dtype).div(255).view(1, 1, 3, 1, 1)
     
     try:
         with torch.no_grad():
             bar = tqdm(total=len(source), disable=not progress, dynamic_ncols=True)
+
             rec = [None] * 4
             for src in reader:
 
@@ -125,6 +144,9 @@ def convert_video(model,
 
                 src = src.to(device, dtype, non_blocking=True).unsqueeze(0) # [B, T, C, H, W]
                 fgr, pha, *rec = model(src, *rec, downsample_ratio)
+
+                # fgr.size(), pha.size()
+                # [1, 1, 3, 1080, 1920], [1, 1, 1, 1080, 1920]
 
                 if output_foreground is not None:
                     writer_fgr.write(fgr[0])
@@ -161,8 +183,8 @@ class Converter:
     def __init__(self, variant: str, checkpoint: str, device: str):
         self.model = MattingNetwork(variant).eval().to(device)
         self.model.load_state_dict(torch.load(checkpoint, map_location=device))
-        self.model = torch.jit.script(self.model)
-        self.model = torch.jit.freeze(self.model)
+        # self.model = torch.jit.script(self.model)
+        # self.model = torch.jit.freeze(self.model)
         self.device = device
     
     def convert(self, *args, **kwargs):
