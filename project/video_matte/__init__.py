@@ -19,12 +19,8 @@ import redos
 import todos
 
 from . import matte
-from einops import rearrange
 
 import pdb
-
-VIDEO_MATTE_ZEROPAD_TIMES = 1
-rec = [None] * 4
 
 
 def get_model():
@@ -36,25 +32,17 @@ def get_model():
     cdir = os.path.dirname(__file__)
     checkpoint = model_path if cdir == "" else cdir + "/" + model_path
 
-    model = matte.MattingNetwork(backbone='mobilenetv3')
+    model = matte.MattingNetwork(backbone="mobilenetv3")
     todos.model.load(model, checkpoint)
     model = model.to(device)
     model.eval()
 
-    # model = torch.jit.script(model)
-    # todos.data.mkdir("output")
-    # if not os.path.exists("output/video_matte.torch"):
-    #     model.save("output/video_matte.torch")
+    model = torch.jit.script(model)
+    todos.data.mkdir("output")
+    if not os.path.exists("output/video_matte.torch"):
+        model.save("output/video_matte.torch")
 
     return model, device
-
-
-def model_forward(model, device, input_tensor, rec):
-    input_tensor = input_tensor.to(device)
-    with torch.no_grad():
-        output, *rec = model(input_tensor, *rec)
-
-    return output, rec
 
 
 def video_service(input_file, output_file, targ):
@@ -75,17 +63,13 @@ def video_service(input_file, output_file, targ):
     progress_bar = tqdm(total=video.n_frames)
 
     def matte_video_frame(no, data):
-        global rec
-        
         # print(f"frame: {no} -- {data.shape}")
         progress_bar.update(1)
 
         input_tensor = todos.data.frame_totensor(data)
-
         # convert tensor from 1x4xHxW to 1x3xHxW
         input_tensor = input_tensor[:, 0:3, :, :]
-        output_tensor, rec = model_forward(model, device, input_tensor, rec)
-
+        output_tensor = todos.model.forward(model, device, input_tensor)
         temp_output_file = "{}/{:06d}.png".format(output_dir, no + 1)
         todos.data.save_tensor(output_tensor, temp_output_file)
 
@@ -94,9 +78,9 @@ def video_service(input_file, output_file, targ):
     redos.video.encode(output_dir, output_file)
 
     # delete temp files
-    for i in range(video.n_frames):
-        temp_output_file = "{}/{:06d}.png".format(output_dir, i + 1)
-        os.remove(temp_output_file)
+    # for i in range(video.n_frames):
+    #     temp_output_file = "{}/{:06d}.png".format(output_dir, i + 1)
+    #     os.remove(temp_output_file)
 
     return True
 
