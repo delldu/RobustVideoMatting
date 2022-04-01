@@ -53,7 +53,13 @@ class MattingNetwork(nn.Module):
         # downsample_ratio = 0.26666666666666666
         # segmentation_pass = False
         # src.size() -- [1, 1, 3, 1080, 1920]
+
         # pp r1, r2, r3, r4 -- (None, None, None, None)
+        # if r1 is not None:
+        #     print("r1.dtype: ", r1.dtype, "r1.device: ", r1.device)
+        #     print(r1.size(), r2.size(), r3.size(), r4.size())
+        # r1.dtype:  torch.float32 r1.device:  cuda:0
+        # [1, 16, 128, 256],[1, 20, 64, 128],[1, 40, 32, 64],[1, 64, 16, 32]
 
         if downsample_ratio != 1:
             src_sm = self._interpolate(src, scale_factor=downsample_ratio)

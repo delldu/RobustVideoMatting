@@ -78,9 +78,9 @@ def video_service(input_file, output_file, targ):
     redos.video.encode(output_dir, output_file)
 
     # delete temp files
-    # for i in range(video.n_frames):
-    #     temp_output_file = "{}/{:06d}.png".format(output_dir, i + 1)
-    #     os.remove(temp_output_file)
+    for i in range(video.n_frames):
+        temp_output_file = "{}/{:06d}.png".format(output_dir, i + 1)
+        os.remove(temp_output_file)
 
     return True
 
