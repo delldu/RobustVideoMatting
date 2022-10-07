@@ -39,17 +39,7 @@ class MattingNetwork(nn.Module):
 
     def forward(self, src):
         # src.size() -- [1, 3, 1080, 1920]
-        # pp r1, r2, r3, r4 -- (None, None, None, None)
-        # if r1 is not None:
-        #     print(r1.size(), r2.size(), r3.size(), r4.size())
-
-        src_sm = src
-
-        # B, C, H, W = src.shape
-        # downsample_ratio = min(512 / max(H, W), 1)
-        # src_sm = F.interpolate(
-        #     src, scale_factor=downsample_ratio, mode="bilinear", align_corners=False, recompute_scale_factor=False
-        # )
+        B, C, H, W = src.shape
 
         f1, f2, f3, f4 = self.backbone(src)
         # f1.size(), f2.size(), f3.size(), f4.size()
@@ -57,7 +47,7 @@ class MattingNetwork(nn.Module):
 
         f4 = self.aspp(f4)
         hid, self.r1, self.r2, self.r3, self.r4 = self.decoder(
-            src_sm, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4
+            src, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4
         )
         # hid.size() -- [1, 16, 288, 512]
         # type(rec), len(rec), rec[0].size(), rec[1].size(), rec[2].size(), rec[3].size()
