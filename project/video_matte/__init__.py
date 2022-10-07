@@ -80,6 +80,10 @@ def video_predict(input_file, output_file):
 
         input_tensor = todos.data.frame_totensor(data)
 
+        if no == 0: # First repeat for stable first hidden state !!!
+            for i in range(5): 
+                model_forward(model, device, input_tensor[:, 0:3, :, :])
+
         output_tensor = model_forward(model, device, input_tensor[:, 0:3, :, :])
 
         temp_output_file = f"{output_dir}/{no + 1:06d}.png"

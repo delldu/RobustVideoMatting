@@ -26,7 +26,7 @@ class MattingNetwork(nn.Module):
             self.aspp = LRASPP(2048, 256)
             self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
 
-        self.project_mat = Projection(16, 4)
+        self.project_mat = Projection(16, 4)  # NOT USED !!!
         self.project_seg = Projection(16, 1)
 
         self.refiner = DeepGuidedFilterRefiner()
@@ -46,16 +46,14 @@ class MattingNetwork(nn.Module):
         # [1, 64, 144, 256], [1, 256, 72, 128], [1, 512, 36, 64], [1, 2048, 18, 32]
 
         f4 = self.aspp(f4)
-        hid, self.r1, self.r2, self.r3, self.r4 = self.decoder(
-            src, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4
-        )
+        hid, self.r1, self.r2, self.r3, self.r4 = self.decoder(src, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4)
         # hid.size() -- [1, 16, 288, 512]
         # type(rec), len(rec), rec[0].size(), rec[1].size(), rec[2].size(), rec[3].size()
         # (<class 'list'>, 4,
         # [1, 16, 144, 256], [1, 32, 72, 128], [1, 64, 36, 64], [1, 128, 18, 32]
 
         seg = self.project_seg(hid).clamp(0, 1.0)
-        mask = F.interpolate(seg, size=(src.size(2), src.size(3)), mode="bilinear", align_corners=False)
+        mask = F.interpolate(seg, size=(H, W), mode="bilinear", align_corners=False)
         # bg = torch.tensor([0.0, 1.0, 0.0]).view(1, 3, 1, 1).to(src.device)
         # output = mask * src + (1.0 - mask) * bg
         output = torch.cat((src, mask), dim=1)
