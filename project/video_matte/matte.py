@@ -52,7 +52,7 @@ class MattingNetwork(nn.Module):
         # (<class 'list'>, 4,
         # [1, 16, 144, 256], [1, 32, 72, 128], [1, 64, 36, 64], [1, 128, 18, 32]
 
-        seg = self.project_seg(hid).clamp(0, 1.0)
+        seg = self.project_seg(hid)  # .clamp(0, 1.0)
         mask = F.interpolate(seg, size=(H, W), mode="bilinear", align_corners=False)
         # bg = torch.tensor([0.0, 1.0, 0.0]).view(1, 3, 1, 1).to(src.device)
         # output = mask * src + (1.0 - mask) * bg
