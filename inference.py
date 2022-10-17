@@ -11,7 +11,7 @@ python inference.py \
     --output-video-mbps 4 \
     --seq-chunk 1
 """
-
+import pdb
 import torch
 import os
 from torch.utils.data import DataLoader
@@ -21,7 +21,6 @@ from tqdm.auto import tqdm
 
 from inference_utils import VideoReader, VideoWriter, ImageSequenceReader, ImageSequenceWriter
 
-import pdb
 
 def convert_video(model,
                   input_source: str,
@@ -62,7 +61,7 @@ def convert_video(model,
     assert output_type in ['video', 'png_sequence'], 'Only support "video" and "png_sequence" output modes.'
     assert seq_chunk >= 1, 'Sequence chunk must be >= 1'
     assert num_workers >= 0, 'Number of workers must be >= 0'
-    
+
     # input_source = 'videos/jensen.mp4'
     # input_resize = None
     # downsample_ratio = None
@@ -92,7 +91,7 @@ def convert_video(model,
     else:
         source = ImageSequenceReader(input_source, transform)
     reader = DataLoader(source, batch_size=seq_chunk, pin_memory=True, num_workers=num_workers)
-    
+
     # Initialize writers
     if output_type == 'video':
         # ---->>>>>>>>>>>>>>>>>>

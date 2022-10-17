@@ -1,6 +1,6 @@
+import pdb
 import av
 import os
-import pims
 import numpy as np
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import to_pil_image
@@ -9,6 +9,7 @@ from PIL import Image
 
 class VideoReader(Dataset):
     def __init__(self, path, transform=None):
+        import pims # crash !!!
         self.video = pims.PyAVVideoReader(path)
         self.rate = self.video.frame_rate
         self.transform = transform

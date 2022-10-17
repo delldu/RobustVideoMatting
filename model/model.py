@@ -42,6 +42,10 @@ class MattingNetwork(nn.Module):
         # refiner = 'deep_guided_filter'
         # pretrained_backbone = False
 
+        # variant = 'mobilenetv3'
+        # refiner = 'deep_guided_filter'
+        # pretrained_backbone = False
+
     def forward(self,
                 src: Tensor,
                 r1: Optional[Tensor] = None,
@@ -77,13 +81,15 @@ class MattingNetwork(nn.Module):
         # (<class 'list'>, 4, 
         # [1, 16, 144, 256], [1, 32, 72, 128], [1, 64, 36, 64], [1, 128, 18, 32]
 
-        if not segmentation_pass:
+        if not segmentation_pass: # True
+            # self.project_mat(hid).size() -- [1, 1, 4, 288, 512] 
             fgr_residual, pha = self.project_mat(hid).split([3, 1], dim=-3)
-            if downsample_ratio != 1:
+            if downsample_ratio != 1: # 0.26666666666666666
                 fgr_residual, pha = self.refiner(src, src_sm, fgr_residual, pha, hid)
             fgr = fgr_residual + src
             fgr = fgr.clamp(0., 1.)
             pha = pha.clamp(0., 1.)
+
             return [fgr, pha, *rec]
         else:
             seg = self.project_seg(hid)
