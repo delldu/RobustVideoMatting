@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torchvision.models.resnet import ResNet, Bottleneck
+from typing import List
 
 
 class ResNet50Encoder(ResNet):
@@ -17,7 +18,7 @@ class ResNet50Encoder(ResNet):
         del self.avgpool
         del self.fc
 
-    def forward_single_frame(self, x):
+    def forward(self, x) -> List[torch.Tensor]:
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -31,15 +32,3 @@ class ResNet50Encoder(ResNet):
         x = self.layer4(x)
         f4 = x  # 1/16
         return [f1, f2, f3, f4]
-
-    def forward_time_series(self, x):
-        B, T = x.shape[:2]
-        features = self.forward_single_frame(x.flatten(0, 1))
-        features = [f.unflatten(0, (B, T)) for f in features]
-        return features
-
-    def forward(self, x):
-        if x.ndim == 5:
-            return self.forward_time_series(x)
-        else:
-            return self.forward_single_frame(x)

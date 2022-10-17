@@ -80,9 +80,9 @@ def video_predict(input_file, output_file):
 
         input_tensor = todos.data.frame_totensor(data)
 
-        if no == 0:  # First repeat for stable first hidden state !!!
-            for i in range(5):
-                model_forward(model, device, input_tensor[:, 0:3, :, :])
+        # if no == 0:  # First repeat for stable first hidden state !!!
+        #     for i in range(5):
+        #         model_forward(model, device, input_tensor[:, 0:3, :, :])
 
         output_tensor = model_forward(model, device, input_tensor[:, 0:3, :, :])
 
@@ -103,3 +103,30 @@ def video_predict(input_file, output_file):
     todos.model.reset_device()
 
     return True
+
+
+def image_predict(input_files, output_dir):
+    # Create directory to store result
+    todos.data.mkdir(output_dir)
+
+    # load model
+    model, device = get_model()
+
+    # load files
+    image_filenames = todos.data.load_files(input_files)
+
+    # start predict
+    progress_bar = tqdm(total=len(image_filenames))
+    for filename in image_filenames:
+        progress_bar.update(1)
+
+        # orig input
+        input_tensor = todos.data.load_rgba_tensor(filename)
+
+        # pytorch recommand clone.detach instead of torch.Tensor(input_tensor)
+        orig_tensor = input_tensor.clone().detach()
+        predict_tensor = model_forward(model, device, input_tensor[:, 0:3, :, :])
+        output_file = f"{output_dir}/{os.path.basename(filename)}"
+
+        todos.data.save_tensor([orig_tensor, predict_tensor], output_file)
+    todos.model.reset_device()

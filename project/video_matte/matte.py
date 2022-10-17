@@ -8,6 +8,7 @@ from torch.nn import functional as F
 
 from .mobilenetv3 import MobileNetV3LargeEncoder
 from .resnet import ResNet50Encoder
+from typing import List
 
 import pdb
 
@@ -80,7 +81,7 @@ class DeepGuidedFilterRefiner(nn.Module):
             nn.Conv2d(hid_channels, 4, kernel_size=1, bias=True),
         )
 
-    def forward(self, fine_src, base_src, base_fgr, base_pha, base_hid):
+    def forward(self, fine_src, base_src, base_fgr, base_pha, base_hid) -> List[torch.Tensor]:
         # fine_src.size(), base_src.size(), base_fgr.size(), base_pha.size(), base_hid.size()
         # [1, 3, 1080, 1920], [1, 3, 288, 512], [1, 3, 288, 512],[1, 1, 288, 512],
         # [1, 16, 288, 512]
@@ -134,7 +135,7 @@ class RecurrentDecoder(nn.Module):
         # feature_channels = [64, 256, 512, 256]
         # decoder_channels = [128, 64, 32, 16]
 
-    def forward(self, s0, f1, f2, f3, f4, r1, r2, r3, r4):
+    def forward(self, s0, f1, f2, f3, f4, r1, r2, r3, r4) -> List[torch.Tensor]:
         # pp s0.size(), f1.size(), f2.size(), f3.size(), f4.size()
         # ([1, 3, 288, 512],
         # [1, 64, 144, 256],
@@ -155,7 +156,7 @@ class AvgPool(nn.Module):
         super().__init__()
         self.avgpool = nn.AvgPool2d(2, 2, count_include_pad=False, ceil_mode=True)
 
-    def forward(self, s0):
+    def forward(self, s0) -> List[torch.Tensor]:
         s1 = self.avgpool(s0)
         s2 = self.avgpool(s1)
         s3 = self.avgpool(s2)
@@ -168,7 +169,7 @@ class BottleneckBlock(nn.Module):
         self.channels = channels
         self.gru = ConvGRU(channels // 2)
 
-    def forward(self, x, r):
+    def forward(self, x, r) -> List[torch.Tensor]:
         a, b = x.split(self.channels // 2, dim=-3)
         b, r = self.gru(b, r)
         x = torch.cat([a, b], dim=-3)
@@ -187,7 +188,7 @@ class UpsamplingBlock(nn.Module):
         )
         self.gru = ConvGRU(out_channels // 2)
 
-    def forward(self, x, f, s, r):
+    def forward(self, x, f, s, r) -> List[torch.Tensor]:
         x = self.upsample(x)
         x = x[:, :, : s.size(2), : s.size(3)]
         x = torch.cat([x, f, s], dim=1)
@@ -226,7 +227,7 @@ class ConvGRU(nn.Module):
         self.ih = nn.Sequential(nn.Conv2d(channels * 2, channels * 2, kernel_size, padding=padding), nn.Sigmoid())
         self.hh = nn.Sequential(nn.Conv2d(channels * 2, channels, kernel_size, padding=padding), nn.Tanh())
 
-    def forward(self, x, h):
+    def forward(self, x, h) -> List[torch.Tensor]:
         if h.size() != x.size():
             # torch.Size([1,1,1,1]):
             h = torch.zeros_like(x)

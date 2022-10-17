@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from torchvision.models.mobilenetv3 import MobileNetV3, InvertedResidualConfig
 from torchvision.transforms.functional import normalize
+from typing import List
+
 import pdb
 
 
@@ -38,7 +40,7 @@ class MobileNetV3LargeEncoder(MobileNetV3):
         del self.avgpool
         del self.classifier
 
-    def forward_single_frame(self, x):
+    def forward(self, x) -> List[torch.Tensor]:
         x = normalize(x, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
         x = self.features[0](x)
@@ -64,15 +66,3 @@ class MobileNetV3LargeEncoder(MobileNetV3):
         f4 = x
 
         return [f1, f2, f3, f4]
-
-    def forward_time_series(self, x):
-        B, T = x.shape[:2]
-        features = self.forward_single_frame(x.flatten(0, 1))
-        features = [f.unflatten(0, (B, T)) for f in features]
-        return features
-
-    def forward(self, x):
-        if x.ndim == 5:
-            return self.forward_time_series(x)
-        else:
-            return self.forward_single_frame(x)
