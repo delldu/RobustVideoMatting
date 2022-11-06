@@ -23,7 +23,7 @@ from . import matte
 import pdb
 
 
-def get_model():
+def get_matte_model():
     """Create model."""
 
     device = todos.model.get_device()
@@ -70,7 +70,7 @@ def video_predict(input_file, output_file):
     todos.data.mkdir(output_dir)
 
     # Load model
-    model, device = get_model()
+    model, device = get_matte_model()
 
     print(f"  matte {input_file}, save to {output_file} ...")
     progress_bar = tqdm(total=video.n_frames)
@@ -110,7 +110,7 @@ def image_predict(input_files, output_dir):
     todos.data.mkdir(output_dir)
 
     # load model
-    model, device = get_model()
+    model, device = get_matte_model()
 
     # load files
     image_filenames = todos.data.load_files(input_files)
