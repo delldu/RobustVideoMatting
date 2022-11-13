@@ -23,7 +23,7 @@ if __name__ == "__main__":
     model, device = video_matte.get_matte_model()
 
     N = 100
-    B, C, H, W = 1, 3, 2048, 2048
+    B, C, H, W = 1, 3, model.max_h, model.max_w
 
     mean_time = 0
     progress_bar = tqdm(total=N)

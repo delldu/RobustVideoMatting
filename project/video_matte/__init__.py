@@ -23,6 +23,28 @@ from . import matte
 import pdb
 
 
+def get_tvm_model():
+    """
+    TVM model base on torch.jit.trace
+    """
+
+    model_path = "models/video_matte.pth"
+    cdir = os.path.dirname(__file__)
+    checkpoint = model_path if cdir == "" else cdir + "/" + model_path
+
+    model = matte.MattingNetwork(backbone="mobilenetv3")
+    todos.model.load(model, checkpoint)
+
+    device = todos.model.get_device()
+    model = model.to(device)
+    model.eval()
+    print(f"Running tvm model model on {device} ...")
+
+    return model, device
+
+
+
+
 def get_matte_model():
     """Create model."""
 
@@ -34,6 +56,8 @@ def get_matte_model():
 
     model = matte.MattingNetwork(backbone="mobilenetv3")
     todos.model.load(model, checkpoint)
+    model = todos.model.ResizePadModel(model)
+
     model = model.to(device)
     model.eval()
 
