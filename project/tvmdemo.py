@@ -28,6 +28,7 @@ def compile():
     if not os.path.exists("output/video_matte.so"):
         input = torch.randn(SO_B, SO_C, SO_H, SO_W)
         todos.tvmod.compile(model, device, input, "output/video_matte.so")
+    todos.model.reset_device()
 
 
 def predict(input_files, output_dir):
@@ -35,7 +36,8 @@ def predict(input_files, output_dir):
     todos.data.mkdir(output_dir)
 
     # load model
-    tvm_model = todos.tvmod.load("output/video_matte.so", "cuda")
+    device = todos.model.get_device()
+    tvm_model = todos.tvmod.load("output/video_matte.so", str(device))
 
     # load files
     image_filenames = todos.data.load_files(input_files)
@@ -56,12 +58,11 @@ def predict(input_files, output_dir):
 
         start_time = time.time()
         predict_tensor = todos.tvmod.forward(tvm_model, input_tensor)
-        torch.cuda.synchronize()
         mean_time += time.time() - start_time
 
         output_file = f"{output_dir}/{os.path.basename(filename)}"
         predict_tensor = todos.data.resize_tensor(predict_tensor, H, W)
-        todos.data.save_tensor([orig_tensor, predict_tensor], output_file)
+        todos.data.save_tensor([predict_tensor], output_file)
 
     mean_time = mean_time / len(image_filenames)
 

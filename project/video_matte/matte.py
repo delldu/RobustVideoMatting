@@ -12,64 +12,6 @@ from typing import List
 
 import pdb
 
-
-class MattingNetwork(nn.Module):
-    def __init__(self, backbone: str = "mobilenetv3", pretrained_backbone: bool = False):
-        super().__init__()
-        # Define max GPU/CPU memory -- 4G
-        self.MAX_H = 2048
-        self.MAX_W = 2048
-        self.MAX_TIMES = 4
-
-        assert backbone in ["mobilenetv3", "resnet50"]
-
-        if backbone == "mobilenetv3":
-            self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
-            self.aspp = LRASPP(960, 128)
-            self.decoder = RecurrentDecoder([16, 24, 40, 128], [80, 40, 32, 16])
-        else:
-            self.backbone = ResNet50Encoder(pretrained_backbone)
-            self.aspp = LRASPP(2048, 256)
-            self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
-
-        self.project_mat = Projection(16, 4)  # NOT USED !!!
-        self.project_seg = Projection(16, 1)
-
-        self.refiner = DeepGuidedFilterRefiner()
-        # pretrained_backbone = False
-
-        self.r1 = torch.zeros(1, 1, 1, 1)
-        self.r2 = torch.zeros(1, 1, 1, 1)
-        self.r3 = torch.zeros(1, 1, 1, 1)
-        self.r4 = torch.zeros(1, 1, 1, 1)
-
-    def forward(self, src):
-        # src.size() -- [1, 3, 1080, 1920]
-        B, C, H, W = src.shape
-
-        f1, f2, f3, f4 = self.backbone(src)
-        # f1.size(), f2.size(), f3.size(), f4.size()
-        # [1, 64, 144, 256], [1, 256, 72, 128], [1, 512, 36, 64], [1, 2048, 18, 32]
-
-        f4 = self.aspp(f4)
-        hid, self.r1, self.r2, self.r3, self.r4 = self.decoder(src, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4)
-        # hid.size() -- [1, 16, 288, 512]
-        # type(rec), len(rec), rec[0].size(), rec[1].size(), rec[2].size(), rec[3].size()
-        # (<class 'list'>, 4,
-        # [1, 16, 144, 256], [1, 32, 72, 128], [1, 64, 36, 64], [1, 128, 18, 32]
-
-        # seg = self.project_seg(hid)  # .clamp(0, 1.0)
-        # mask = F.interpolate(seg, size=(H, W), mode="bilinear", align_corners=False)
-        # # bg = torch.tensor([0.0, 1.0, 0.0]).view(1, 3, 1, 1).to(src.device)
-        # # output = mask * src + (1.0 - mask) * bg
-        # output = torch.cat((src, mask), dim=1)
-        # return output
-
-        src_residual, mask = self.project_mat(hid).split([3, 1], dim=-3)
-        mask = mask.clamp(0.0, 1.0)
-        output = torch.cat((src, mask), dim=1)
-        return output
-
 """
 Adopted from <https://github.com/wuhuikai/DeepGuidedFilter/>
 """
@@ -237,10 +179,10 @@ class ConvGRU(nn.Module):
         self.hh = nn.Sequential(nn.Conv2d(channels * 2, channels, kernel_size, padding=padding), nn.Tanh())
 
     def forward(self, x, h) -> List[torch.Tensor]:
-        if h.size() != x.size():
-            # torch.Size([1,1,1,1]):
+        # x.size: [1, 64, 68, 120], h.size: [1, 1, 1, 1]
+        # NOT Support traced xxxx8888 !!!
+        if x.size() != h.size():
             h = torch.zeros_like(x)
-
         r, z = self.ih(torch.cat([x, h], dim=1)).split(self.channels, dim=1)
         c = self.hh(torch.cat([x, r * h], dim=1))
         h = (1 - z) * h + z * c
@@ -254,3 +196,60 @@ class Projection(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class MattingNetwork(nn.Module):
+    def __init__(self, backbone: str = "mobilenetv3", pretrained_backbone: bool = False):
+        super().__init__()
+        # Define max GPU/CPU memory -- 4G
+        self.MAX_H = 2048
+        self.MAX_W = 4048
+        self.MAX_TIMES = 4
+        # GPU 8G, 220ms
+
+        assert backbone in ["mobilenetv3", "resnet50"]
+
+        if backbone == "mobilenetv3":
+            self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
+            self.aspp = LRASPP(960, 128)
+            self.decoder = RecurrentDecoder([16, 24, 40, 128], [80, 40, 32, 16])
+        else:
+            self.backbone = ResNet50Encoder(pretrained_backbone)
+            self.aspp = LRASPP(2048, 256)
+            self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
+
+        self.project_mat = Projection(16, 4)  # NOT USED !!!
+        self.project_seg = Projection(16, 1)
+
+        self.refiner = DeepGuidedFilterRefiner()
+        # pretrained_backbone = False
+
+        self.r1 = torch.zeros(1, 1, 1, 1)
+        self.r2 = torch.zeros(1, 1, 1, 1)
+        self.r3 = torch.zeros(1, 1, 1, 1)
+        self.r4 = torch.zeros(1, 1, 1, 1)
+
+    def forward(self, src):
+        # src.size() -- [1, 3, 1080, 1920]
+        f1, f2, f3, f4 = self.backbone(src)
+        # f1.size(), f2.size(), f3.size(), f4.size()
+        # [1, 64, 144, 256], [1, 256, 72, 128], [1, 512, 36, 64], [1, 2048, 18, 32]
+
+        f4 = self.aspp(f4)
+        hid, self.r1, self.r2, self.r3, self.r4 = self.decoder(src, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4)
+        # hid.size() -- [1, 16, 288, 512]
+        # type(rec), len(rec), rec[0].size(), rec[1].size(), rec[2].size(), rec[3].size()
+        # (<class 'list'>, 4,
+        # [1, 16, 144, 256], [1, 32, 72, 128], [1, 64, 36, 64], [1, 128, 18, 32]
+
+        # seg = self.project_seg(hid)  # .clamp(0, 1.0)
+        # mask = F.interpolate(seg, size=(H, W), mode="bilinear", align_corners=False)
+        # # bg = torch.tensor([0.0, 1.0, 0.0]).view(1, 3, 1, 1).to(src.device)
+        # # output = mask * src + (1.0 - mask) * bg
+        # output = torch.cat((src, mask), dim=1)
+        # return output
+
+        src_residual, mask = self.project_mat(hid).split([3, 1], dim=-3)
+        mask = mask.clamp(0.0, 1.0)
+        output = torch.cat((src, mask), dim=1)
+        return output

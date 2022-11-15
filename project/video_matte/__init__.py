@@ -43,8 +43,6 @@ def get_tvm_model():
     return model, device
 
 
-
-
 def get_matte_model():
     """Create model."""
 
@@ -57,7 +55,6 @@ def get_matte_model():
     model = matte.MattingNetwork(backbone="mobilenetv3")
     todos.model.load(model, checkpoint)
     model = todos.model.ResizePadModel(model)
-
     model = model.to(device)
     model.eval()
 
@@ -68,18 +65,6 @@ def get_matte_model():
         model.save("output/video_matte.torch")
 
     return model, device
-
-
-def model_forward(model, device, input_tensor, multi_times=1):
-    # zeropad for model
-    H, W = input_tensor.size(2), input_tensor.size(3)
-    if H % multi_times != 0 or W % multi_times != 0:
-        input_tensor = todos.data.zeropad_tensor(input_tensor, times=multi_times)
-
-    # convert tensor from Bx4xHxW to Bx3xHxW
-    output_tensor = todos.model.forward(model, device, input_tensor)
-
-    return output_tensor[:, :, 0:H, 0:W]
 
 
 def video_predict(input_file, output_file):
@@ -108,7 +93,7 @@ def video_predict(input_file, output_file):
         #     for i in range(5):
         #         model_forward(model, device, input_tensor[:, 0:3, :, :])
 
-        output_tensor = model_forward(model, device, input_tensor[:, 0:3, :, :])
+        output_tensor = todos.model.forward(model, device, input_tensor[:, 0:3, :, :])
 
         temp_output_file = f"{output_dir}/{no + 1:06d}.png"
         # todos.data.save_tensor(output_tensor, temp_output_file)
@@ -149,7 +134,7 @@ def image_predict(input_files, output_dir):
 
         # pytorch recommand clone.detach instead of torch.Tensor(input_tensor)
         orig_tensor = input_tensor.clone().detach()
-        predict_tensor = model_forward(model, device, input_tensor[:, 0:3, :, :])
+        predict_tensor = todos.model.forward(model, device, input_tensor[:, 0:3, :, :])
         output_file = f"{output_dir}/{os.path.basename(filename)}"
 
         todos.data.save_tensor([orig_tensor, predict_tensor], output_file)
