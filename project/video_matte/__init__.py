@@ -32,7 +32,8 @@ def get_tvm_model():
     cdir = os.path.dirname(__file__)
     checkpoint = model_path if cdir == "" else cdir + "/" + model_path
 
-    model = matte.MattingNetwork(backbone="mobilenetv3")
+    # model = matte.MattingNetwork(backbone="mobilenetv3")
+    model = matte.MattingNetwork()
     todos.model.load(model, checkpoint)
 
     device = todos.model.get_device()
@@ -48,21 +49,22 @@ def get_matte_model():
 
     device = todos.model.get_device()
 
-    model_path = "models/video_matte.pth"
-    cdir = os.path.dirname(__file__)
-    checkpoint = model_path if cdir == "" else cdir + "/" + model_path
+    # model_path = "models/video_matte.pth"
+    # cdir = os.path.dirname(__file__)
+    # checkpoint = model_path if cdir == "" else cdir + "/" + model_path
 
-    model = matte.MattingNetwork(backbone="mobilenetv3")
-    todos.model.load(model, checkpoint)
-    model = todos.model.ResizePadModel(model)
+    # model = matte.MattingNetwork(backbone="mobilenetv3")
+    model = matte.MattingNetwork()
+    # todos.model.load(model, checkpoint)
+    # model = todos.model.ResizePadModel(model)
     model = model.to(device)
     model.eval()
 
     print(f"Running on {device} ...")
-    model = torch.jit.script(model)
-    todos.data.mkdir("output")
-    if not os.path.exists("output/video_matte.torch"):
-        model.save("output/video_matte.torch")
+    # model = torch.jit.script(model)
+    # todos.data.mkdir("output")
+    # if not os.path.exists("output/video_matte.torch"):
+    #     model.save("output/video_matte.torch")
 
     return model, device
 

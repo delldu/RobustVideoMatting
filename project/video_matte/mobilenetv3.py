@@ -39,6 +39,7 @@ class MobileNetV3LargeEncoder(MobileNetV3):
 
         del self.avgpool
         del self.classifier
+        # pdb.set_trace()
 
     def forward(self, x) -> List[torch.Tensor]:
         x = normalize(x, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
