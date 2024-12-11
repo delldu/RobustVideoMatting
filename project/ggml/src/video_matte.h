@@ -429,30 +429,15 @@ struct RecurrentDecoder {
         std::vector<ggml_tensor_t *> xlist;
         ggml_tensor_t *s1, *s2, *s3;
         ggml_tensor_t *x0, *x1, *x2, *x3, *x4;
-        ggml_tensor_dump("RecurrentDecoder x", x);
 
         xlist = avgpool.forward(ctx, x);
         s1 = xlist[0]; s2 = xlist[1]; s3 = xlist[2];
 
-        ggml_tensor_dump("RecurrentDecoder s1", s1);
-        ggml_tensor_dump("RecurrentDecoder s2", s2);
-        ggml_tensor_dump("RecurrentDecoder s3", s3);
-
-        ggml_tensor_dump("RecurrentDecoder f4", f4);
         x4 = decode4.forward(ctx, f4);
-        ggml_tensor_dump("RecurrentDecoder x4", x4);
-
         x3 = decode3.forward(ctx, x4, f3, s3);
-        ggml_tensor_dump("RecurrentDecoder x3", x3);
-
         x2 = decode2.forward(ctx, x3, f2, s2);
-        ggml_tensor_dump("RecurrentDecoder x2", x2);
-
         x1 = decode1.forward(ctx, x2, f1, s1);
-        ggml_tensor_dump("RecurrentDecoder x1", x1);
-
         x0 = decode0.forward(ctx, x1, x);
-        ggml_tensor_dump("RecurrentDecoder x0", x0);
 
         return x0;
     }
@@ -1115,39 +1100,29 @@ struct MobileNetV3LargeEncoder {
 
         std::vector<ggml_tensor_t*> xlist;
         x = normal.forward(ctx, x);
-        ggml_tensor_dump("x001", x);
-
         x = features_0.forward(ctx, x);
         x = features_1_15[0].forward(ctx, x);
-        ggml_tensor_dump("x002", x);
         xlist.push_back(x); // f1
+
         x = features_1_15[1].forward(ctx, x);
         x = features_1_15[2].forward(ctx, x);
-        ggml_tensor_dump("x003", x);
         xlist.push_back(x); // f2
+
         x = features_1_15[3].forward(ctx, x);
-        ggml_tensor_dump("x003-1", x);
         x = features_1_15[4].forward(ctx, x);
-        ggml_tensor_dump("x003-2", x);
         x = features_1_15[5].forward(ctx, x);
-        ggml_tensor_dump("x004", x);
         xlist.push_back(x); // f3
+
         x = features_1_15[6].forward(ctx, x);
         x = features_1_15[7].forward(ctx, x);
         x = features_1_15[8].forward(ctx, x);
         x = features_1_15[9].forward(ctx, x);
-        ggml_tensor_dump("x005", x);
         x = features_1_15[10].forward(ctx, x);
         x = features_1_15[11].forward(ctx, x);
         x = features_1_15[12].forward(ctx, x);
         x = features_1_15[13].forward(ctx, x);
         x = features_1_15[14].forward(ctx, x);
-        ggml_tensor_dump("x006", x);
-
         x = features_16.forward(ctx, x);
-
-        ggml_tensor_dump("x007", x);
-
         xlist.push_back(x); // f4
 
         return xlist;
@@ -1200,28 +1175,32 @@ struct MattingNetwork : GGMLNetwork {
         // return output
 
         ggml_tensor_t *f1, *f2, *f3, *f4;
-        ggml_tensor_dump("x", x);
+        {
+
+        }
         std::vector<ggml_tensor_t *>xlist = backbone.forward(ctx, x);
         f1 = xlist[0]; f2 = xlist[1]; f3 = xlist[2]; f4 = xlist[3];
-        ggml_tensor_dump("f1", f1);
-        ggml_tensor_dump("f2", f2);
-        ggml_tensor_dump("f3", f3);
-        ggml_tensor_dump("f4", f4);
+        {
 
+        }
         f4 = aspp.forward(ctx, f4);
-        ggml_tensor_dump("f4-1", f4);
+        {
 
+        }
         ggml_tensor_t *hid = decoder.forward(ctx, x, f1, f2, f3, f4);
-        ggml_tensor_dump("hid", hid);
+        {
 
+        }
         ggml_tensor_t *out = project_mat.forward(ctx, hid);
-        ggml_tensor_dump("out", out);
+        {
 
-        ggml_tensor_t *mask = ggml_nn_slice(ctx, out, 2 /*dim*/, 0, 1, 1/*step*/);
-        ggml_tensor_dump("mask", out);
+        }
+        ggml_tensor_t *mask = ggml_nn_slice(ctx, out, 2 /*dim*/, 3, 4, 1/*step*/);
+        mask = ggml_clamp(ctx, mask, 0.0, 1.0);
+        {
 
+        }
         out = ggml_concat(ctx, x, mask, 2/*dim*/);
-        ggml_tensor_dump("out-1", out);
 
         return out;
     }
