@@ -1,16 +1,21 @@
 import torch
 from torch import nn
-from torchvision.models.mobilenetv3 import MobileNetV3, InvertedResidualConfig
+# from torchvision.models.mobilenetv3 import MobileNetV3, InvertedResidualConfig
+from .local_v3 import MobileNetV3, InvertedResidualConfig
+
 from torchvision.transforms.functional import normalize
 from typing import List
 
 import pdb
-
+# https://github.com/d-li14/mobilenetv3.pytorch/blob/master/mobilenetv3.py
 
 class MobileNetV3LargeEncoder(MobileNetV3):
-    def __init__(self, pretrained: bool = False):
+    def __init__(self):
         super().__init__(
             inverted_residual_setting=[
+                # input_channels, kernel, expanded_channels, out_channels,
+                # use_se: bool, # activation: str,
+                # stride, dilation, width_mult
                 InvertedResidualConfig(16, 3, 16, 16, False, "RE", 1, 1, 1),
                 InvertedResidualConfig(16, 3, 64, 24, False, "RE", 2, 1, 1),  # C1
                 InvertedResidualConfig(24, 3, 72, 24, False, "RE", 1, 1, 1),
@@ -29,17 +34,9 @@ class MobileNetV3LargeEncoder(MobileNetV3):
             ],
             last_channel=1280,
         )
-
-        if pretrained:
-            self.load_state_dict(
-                torch.hub.load_state_dict_from_url(
-                    "https://download.pytorch.org/models/mobilenet_v3_large-8738ca79.pth"
-                )
-            )
-
         del self.avgpool
         del self.classifier
-        # pdb.set_trace()
+
 
     def forward(self, x) -> List[torch.Tensor]:
         x = normalize(x, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -67,3 +64,4 @@ class MobileNetV3LargeEncoder(MobileNetV3):
         f4 = x
 
         return [f1, f2, f3, f4]
+

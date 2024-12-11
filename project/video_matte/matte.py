@@ -62,6 +62,7 @@ class DeepGuidedFilterRefiner(nn.Module):
 class LRASPP(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
+        # 960, 128
         self.aspp1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True)
         )
@@ -78,22 +79,25 @@ class LRASPP(nn.Module):
 class RecurrentDecoder(nn.Module):
     def __init__(self, feature_channels, decoder_channels):
         super().__init__()
+        # feature_channels = [16, 24, 40, 128]
+        # decoder_channels = [80, 40, 32, 16]
         self.avgpool = AvgPool()
-        self.decode4 = BottleneckBlock(feature_channels[3])
-        self.decode3 = UpsamplingBlock(feature_channels[3], feature_channels[2], 3, decoder_channels[0])
-        self.decode2 = UpsamplingBlock(decoder_channels[0], feature_channels[1], 3, decoder_channels[1])
-        self.decode1 = UpsamplingBlock(decoder_channels[1], feature_channels[0], 3, decoder_channels[2])
-        self.decode0 = OutputBlock(decoder_channels[2], 3, decoder_channels[3])
-        # feature_channels = [64, 256, 512, 256]
-        # decoder_channels = [128, 64, 32, 16]
+        # self.decode4 = BottleneckBlock(feature_channels[3])
+        # self.decode3 = UpsamplingBlock(feature_channels[3], feature_channels[2], 3, decoder_channels[0])
+        # self.decode2 = UpsamplingBlock(decoder_channels[0], feature_channels[1], 3, decoder_channels[1])
+        # self.decode1 = UpsamplingBlock(decoder_channels[1], feature_channels[0], 3, decoder_channels[2])
+        # self.decode0 = OutputBlock(decoder_channels[2], 3, decoder_channels[3])
+
+        self.decode4 = BottleneckBlock(128)
+        self.decode3 = UpsamplingBlock(128, 40, 3, 80)
+        self.decode2 = UpsamplingBlock(80, 24, 3, 40)
+        self.decode1 = UpsamplingBlock(40, 16, 3, 32)
+        self.decode0 = OutputBlock(32, 3, 16)
+
+
 
     def forward(self, s0, f1, f2, f3, f4):
-        # pp s0.size(), f1.size(), f2.size(), f3.size(), f4.size()
-        # ([1, 3, 288, 512],
-        # [1, 64, 144, 256],
-        # [1, 256, 72, 128],
-        # [1, 512, 36, 64],
-        # [1, 256, 18, 32])
+
         s1, s2, s3 = self.avgpool(s0)
         x4 = self.decode4(f4)
         x3 = self.decode3(x4, f3, s3)
@@ -123,7 +127,6 @@ class BottleneckBlock(nn.Module):
 
     def forward(self, x) -> List[torch.Tensor]:
         a, b = x.split(self.channels // 2, dim=-3)
-        # b, r = self.gru(b, r)
         b = self.gru(b)
         x = torch.cat([a, b], dim=-3)
         return x
@@ -146,11 +149,11 @@ class UpsamplingBlock(nn.Module):
         x = x[:, :, : s.size(2), : s.size(3)]
         x = torch.cat([x, f, s], dim=1)
         x = self.conv(x)
-        a, b = x.split(self.out_channels // 2, dim=1)
-        # b, r = self.gru(b, r)
-        b = self.gru(b)
 
+        a, b = x.split(self.out_channels // 2, dim=1)
+        b = self.gru(b)
         x = torch.cat([a, b], dim=1)
+
         return x
 
 
@@ -176,40 +179,20 @@ class OutputBlock(nn.Module):
 
 
 class ConvGRU(nn.Module):
-    def __init__(self, channels: int, kernel_size: int = 3, padding: int = 1):
+    def __init__(self, channels):
         super().__init__()
+        kernel_size = 3
         self.channels = channels
-        self.ih = nn.Sequential(nn.Conv2d(channels * 2, channels * 2, kernel_size, padding=padding), nn.Sigmoid())
-        self.hh = nn.Sequential(nn.Conv2d(channels * 2, channels, kernel_size, padding=padding), nn.Tanh())
+        self.ih = nn.Sequential(nn.Conv2d(channels * 2, channels * 2, kernel_size, padding=1), nn.Sigmoid())
+        self.hh = nn.Sequential(nn.Conv2d(channels * 2, channels, kernel_size, padding=1), nn.Tanh())
 
     def forward(self, x):
         # x.size: [1, 64, 68, 120], h.size: [1, 1, 1, 1]
-        # NOT Support traced xxxx8888 !!!
-        # todos.debug.output_var("ConvGRU h1", h)
-        # assert x.size() != h.size()
-        # if x.size() != h.size():
-        #     h = torch.zeros_like(x)
         h = torch.zeros_like(x)
         r, z = self.ih(torch.cat([x, h], dim=1)).split(self.channels, dim=1)
         # tensor [r] size: [1, 64, 68, 120], min: 0.0, max: 1.0, mean: 0.358712
         # tensor [z] size: [1, 64, 68, 120], min: 0.0, max: 1.0, mean: 0.405152
-
-        # tensor [ConvGRU r * h] size: [1, 64, 68, 120], min: 0.0, max: 0.0, mean: 0.0
-        # tensor [ConvGRU r * h] size: [1, 40, 135, 240], min: 0.0, max: 0.0, mean: 0.0
-        # tensor [ConvGRU r * h] size: [1, 20, 270, 480], min: 0.0, max: 0.0, mean: 0.0
-        # tensor [ConvGRU r * h] size: [1, 16, 540, 960], min: 0.0, max: 0.0, mean: 0.0
-        # c = self.hh(torch.cat([x, r * h], dim=1))
         c = self.hh(torch.cat([x, h], dim=1))
-
-
-        # tensor [ConvGRU h1] size: [1, 1, 1, 1], min: 0.0, max: 0.0, mean: 0.0
-        # tensor [ConvGRU h2] size: [1, 20, 270, 480], min: 0.0, max: 0.0, mean: 0.0
-        # tensor [ConvGRU h3] size: [1, 20, 270, 480], min: 0.0, max: 0.0, mean: 0.0
-        # tensor [ConvGRU h4] size: [1, 20, 270, 480], min: 0.0, max: 0.0, mean: 0.0
-        # --------------------------------------------------------------------------------
-        assert (h.abs().max() < 1e-5)
-
-        # h = (1 - z) * h + z * c
         h = z * c
         return h
 
@@ -217,6 +200,7 @@ class ConvGRU(nn.Module):
 class Projection(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
+        # 16, 4
         self.conv = nn.Conv2d(in_channels, out_channels, 1)
 
     def forward(self, x):
@@ -233,20 +217,7 @@ class MattingNetwork(nn.Module):
         self.MAX_TIMES = 4
         # GPU 8G, 220ms
 
-        # assert backbone in ["mobilenetv3", "resnet50"]
-
-        # if backbone == "mobilenetv3":
-        #     self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
-        #     self.aspp = LRASPP(960, 128)
-        #     self.decoder = RecurrentDecoder([16, 24, 40, 128], [80, 40, 32, 16])
-        # else:
-        #     self.backbone = ResNet50Encoder(pretrained_backbone)
-        #     self.aspp = LRASPP(2048, 256)
-        #     self.decoder = RecurrentDecoder([64, 256, 512, 256], [128, 64, 32, 16])
-
-        # self.backbone = MobileNetV3LargeEncoder(pretrained_backbone)
-        self.backbone = MobileNetV3LargeEncoder(False)
-
+        self.backbone = MobileNetV3LargeEncoder()
         self.aspp = LRASPP(960, 128)
         self.decoder = RecurrentDecoder([16, 24, 40, 128], [80, 40, 32, 16])
 
@@ -259,11 +230,10 @@ class MattingNetwork(nn.Module):
 
         del self.refiner
         del self.project_seg
+        # from ggml_engine import create_network
+        # create_network(self)
+        # torch.save(self.state_dict(), "/tmp/a.pth")
 
-        # self.r1 = torch.zeros(1, 1, 1, 1)
-        # self.r2 = torch.zeros(1, 1, 1, 1)
-        # self.r3 = torch.zeros(1, 1, 1, 1)
-        # self.r4 = torch.zeros(1, 1, 1, 1)
 
     def load_weights(self, model_path="models/video_matte.pth"):
         print(f"Loading weights from {model_path} ......")
@@ -272,34 +242,11 @@ class MattingNetwork(nn.Module):
         sd = torch.load(checkpoint)
         self.load_state_dict(sd)        
 
-        # new_sd = {}
-        # for k, v in sd.items():
-        #     k = k.replace("module.", "")
-        #     new_sd[k] = v
-        # self.load_state_dict(new_sd)        
 
     def forward(self, src):
-        # src.size() -- [1, 3, 1080, 1920]
         f1, f2, f3, f4 = self.backbone(src)
-        # f1.size(), f2.size(), f3.size(), f4.size()
-        # [1, 64, 144, 256], [1, 256, 72, 128], [1, 512, 36, 64], [1, 2048, 18, 32]
-
         f4 = self.aspp(f4)
-        # hid, self.r1, self.r2, self.r3, self.r4 = self.decoder(src, f1, f2, f3, f4, self.r1, self.r2, self.r3, self.r4)
         hid = self.decoder(src, f1, f2, f3, f4)
-
-        # hid.size() -- [1, 16, 288, 512]
-        # type(rec), len(rec), rec[0].size(), rec[1].size(), rec[2].size(), rec[3].size()
-        # (<class 'list'>, 4,
-        # [1, 16, 144, 256], [1, 32, 72, 128], [1, 64, 36, 64], [1, 128, 18, 32]
-
-        # seg = self.project_seg(hid)  # .clamp(0, 1.0)
-        # mask = F.interpolate(seg, size=(H, W), mode="bilinear", align_corners=False)
-        # # bg = torch.tensor([0.0, 1.0, 0.0]).view(1, 3, 1, 1).to(src.device)
-        # # output = mask * src + (1.0 - mask) * bg
-        # output = torch.cat((src, mask), dim=1)
-        # return output
-
         src_residual, mask = self.project_mat(hid).split([3, 1], dim=-3)
         mask = mask.clamp(0.0, 1.0)
         output = torch.cat((src, mask), dim=1)
