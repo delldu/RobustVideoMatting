@@ -113,7 +113,12 @@ struct OutputBlock {
         // int B = (int)x->ne[3];
         x = ggml_interpolate(ctx, x, 0, 2*W);
         x = ggml_interpolate(ctx, x, 1, 2*H);
-
+        if (x->ne[0] > s->ne[0]) {
+            x = ggml_nn_slice(ctx, x, 0/*dim on W*/, 0, s->ne[0], 1/*step*/);
+        }
+        if (x->ne[1] > s->ne[1]) {
+            x = ggml_nn_slice(ctx, x, 1/*dim on H*/, 0, s->ne[1], 1/*step*/);
+        }
         x = ggml_concat(ctx, x, s, 2 /*dim on C*/);
         x = conv_0.forward(ctx, x);
         x = norm_1.forward(ctx, x);
@@ -260,6 +265,12 @@ struct UpsamplingBlock {
 
         x = ggml_interpolate(ctx, x, 0, 2*W);
         x = ggml_interpolate(ctx, x, 1, 2*H);
+        if (x->ne[0] > s->ne[0]) {
+            x = ggml_nn_slice(ctx, x, 0/*dim on W*/, 0, s->ne[0], 1/*step*/);
+        }
+        if (x->ne[1] > s->ne[1]) {
+            x = ggml_nn_slice(ctx, x, 1/*dim on H*/, 0, s->ne[1], 1/*step*/);
+        }
         x = ggml_cat(ctx, 3, x, f, s, 2/*dim on C*/);
         // (conv): Sequential(
         //     (0): Conv2d(59, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
@@ -269,8 +280,8 @@ struct UpsamplingBlock {
         x = conv_0.forward(ctx, x);
         x = conv_1.forward(ctx, x);
         x = ggml_relu(ctx, x);
-        ggml_tensor_t *a = ggml_nn_slice(ctx, x, 2/*dim on C*/, 0, out_channels, 1/*step*/);
-        ggml_tensor_t *b = ggml_nn_slice(ctx, x, 2/*dim on C*/, out_channels, 2*out_channels, 1/*step*/);
+        ggml_tensor_t *a = ggml_nn_slice(ctx, x, 2/*dim on C*/, 0, out_channels/2, 1/*step*/);
+        ggml_tensor_t *b = ggml_nn_slice(ctx, x, 2/*dim on C*/, out_channels/2, out_channels, 1/*step*/);
         b = gru.forward(ctx, b);
         x = ggml_concat(ctx, a, b, 2/*dim on C*/);
 
@@ -300,10 +311,10 @@ struct BottleneckBlock {
         // b = self.gru(b)
         // x = torch.cat([a, b], dim=-3)
         // return x
-        ggml_tensor_t *a = ggml_nn_slice(ctx, x, 0/*dim on B*/, 0, channels, 1/*step*/);
-        ggml_tensor_t *b = ggml_nn_slice(ctx, x, 0/*dim on B*/, channels, 2*channels, 1/*step*/);
+        ggml_tensor_t *a = ggml_nn_slice(ctx, x, 2/*dim on C*/, 0, channels/2, 1/*step*/);
+        ggml_tensor_t *b = ggml_nn_slice(ctx, x, 2/*dim on C*/, channels/2, channels, 1/*step*/);
         b = gru.forward(ctx, b);
-        x = ggml_concat(ctx, a, b, 0/*dim on B*/);
+        x = ggml_concat(ctx, a, b, 2/*dim on C*/);
         return x;
     }
 };
@@ -321,6 +332,7 @@ struct AvgPool {
         // self.avgpool = nn.AvgPool2d(2, 2, count_include_pad=False, ceil_mode=True)
         avgpool.kernel_size = 2;
         avgpool.stride = 2;
+        avgpool.padding = 0;
         avgpool.create_weight_tensors(ctx);
     }
 
@@ -341,6 +353,7 @@ struct AvgPool {
         s1 = avgpool.forward(ctx, x);
         s2 = avgpool.forward(ctx, s1);
         s3 = avgpool.forward(ctx, s2);
+
         xlist.push_back(s1);
         xlist.push_back(s2);
         xlist.push_back(s3);
@@ -348,11 +361,7 @@ struct AvgPool {
     }
 };
 
-
 struct RecurrentDecoder {
-    // network hparams
-
-    // network params
     struct AvgPool avgpool;
     struct BottleneckBlock decode4;
     struct UpsamplingBlock decode3;
@@ -420,15 +429,30 @@ struct RecurrentDecoder {
         std::vector<ggml_tensor_t *> xlist;
         ggml_tensor_t *s1, *s2, *s3;
         ggml_tensor_t *x0, *x1, *x2, *x3, *x4;
+        ggml_tensor_dump("RecurrentDecoder x", x);
 
         xlist = avgpool.forward(ctx, x);
-        s1 = xlist[0]; s2 = xlist[1]; s3 = xlist[1];
+        s1 = xlist[0]; s2 = xlist[1]; s3 = xlist[2];
 
+        ggml_tensor_dump("RecurrentDecoder s1", s1);
+        ggml_tensor_dump("RecurrentDecoder s2", s2);
+        ggml_tensor_dump("RecurrentDecoder s3", s3);
+
+        ggml_tensor_dump("RecurrentDecoder f4", f4);
         x4 = decode4.forward(ctx, f4);
+        ggml_tensor_dump("RecurrentDecoder x4", x4);
+
         x3 = decode3.forward(ctx, x4, f3, s3);
+        ggml_tensor_dump("RecurrentDecoder x3", x3);
+
         x2 = decode2.forward(ctx, x3, f2, s2);
+        ggml_tensor_dump("RecurrentDecoder x2", x2);
+
         x1 = decode1.forward(ctx, x2, f1, s1);
+        ggml_tensor_dump("RecurrentDecoder x1", x1);
+
         x0 = decode0.forward(ctx, x1, x);
+        ggml_tensor_dump("RecurrentDecoder x0", x0);
 
         return x0;
     }
@@ -597,12 +621,22 @@ struct SqueezeExcitation {
     ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
         ggml_tensor_t *scale = avgpool.forward(ctx, x);
         scale = fc1.forward(ctx, scale);
+
         scale = ggml_relu(ctx, scale);
         scale = fc2.forward(ctx, scale);
         scale = ggml_hardsigmoid(ctx, scale);
 
-        x = ggml_mul(ctx, scale, x);
+        x = ggml_mul(ctx, x, scale); // use (x * scale) instead of (scale * x) for auto brocast
+        // se x    f32 [240, 135, 72, 1], 
+        // se scale1    f32 [1, 1, 72, 1], 
+        // se scale2    f32 [1, 1, 24, 1], 
+        // se scale3    f32 [1, 1, 72, 1], 
 
+        // tensor [input] size: [1, 72, 135, 240], min: 0.0, max: 4.819407, mean: 0.691895
+        // tensor [scale 1] size: [1, 72, 1, 1], min: 0.0, max: 2.504586, mean: 0.691895
+        // tensor [scale 2] size: [1, 24, 1, 1], min: 0.0, max: 6.000372, mean: 0.972454
+        // tensor [scale 3] size: [1, 72, 1, 1], min: 0.5, max: 1.0, mean: 0.82587
+        // --------------------------------------------------------------------------------
         return x;
     }
 };
@@ -1081,27 +1115,39 @@ struct MobileNetV3LargeEncoder {
 
         std::vector<ggml_tensor_t*> xlist;
         x = normal.forward(ctx, x);
+        ggml_tensor_dump("x001", x);
 
         x = features_0.forward(ctx, x);
         x = features_1_15[0].forward(ctx, x);
+        ggml_tensor_dump("x002", x);
         xlist.push_back(x); // f1
         x = features_1_15[1].forward(ctx, x);
         x = features_1_15[2].forward(ctx, x);
+        ggml_tensor_dump("x003", x);
         xlist.push_back(x); // f2
         x = features_1_15[3].forward(ctx, x);
+        ggml_tensor_dump("x003-1", x);
         x = features_1_15[4].forward(ctx, x);
+        ggml_tensor_dump("x003-2", x);
         x = features_1_15[5].forward(ctx, x);
+        ggml_tensor_dump("x004", x);
         xlist.push_back(x); // f3
         x = features_1_15[6].forward(ctx, x);
         x = features_1_15[7].forward(ctx, x);
         x = features_1_15[8].forward(ctx, x);
         x = features_1_15[9].forward(ctx, x);
+        ggml_tensor_dump("x005", x);
         x = features_1_15[10].forward(ctx, x);
         x = features_1_15[11].forward(ctx, x);
         x = features_1_15[12].forward(ctx, x);
         x = features_1_15[13].forward(ctx, x);
         x = features_1_15[14].forward(ctx, x);
+        ggml_tensor_dump("x006", x);
+
         x = features_16.forward(ctx, x);
+
+        ggml_tensor_dump("x007", x);
+
         xlist.push_back(x); // f4
 
         return xlist;
@@ -1154,13 +1200,28 @@ struct MattingNetwork : GGMLNetwork {
         // return output
 
         ggml_tensor_t *f1, *f2, *f3, *f4;
+        ggml_tensor_dump("x", x);
         std::vector<ggml_tensor_t *>xlist = backbone.forward(ctx, x);
         f1 = xlist[0]; f2 = xlist[1]; f3 = xlist[2]; f4 = xlist[3];
+        ggml_tensor_dump("f1", f1);
+        ggml_tensor_dump("f2", f2);
+        ggml_tensor_dump("f3", f3);
+        ggml_tensor_dump("f4", f4);
+
         f4 = aspp.forward(ctx, f4);
+        ggml_tensor_dump("f4-1", f4);
+
         ggml_tensor_t *hid = decoder.forward(ctx, x, f1, f2, f3, f4);
+        ggml_tensor_dump("hid", hid);
+
         ggml_tensor_t *out = project_mat.forward(ctx, hid);
+        ggml_tensor_dump("out", out);
+
         ggml_tensor_t *mask = ggml_nn_slice(ctx, out, 2 /*dim*/, 0, 1, 1/*step*/);
+        ggml_tensor_dump("mask", out);
+
         out = ggml_concat(ctx, x, mask, 2/*dim*/);
+        ggml_tensor_dump("out-1", out);
 
         return out;
     }
