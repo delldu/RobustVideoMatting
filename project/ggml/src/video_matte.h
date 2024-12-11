@@ -4,6 +4,9 @@
 #include "ggml_nn.h"
 
 #pragma GCC diagnostic ignored "-Wformat-truncation"
+// x = ggml_cont(ctx, x);
+// ggml_set_name(x, "x");
+// ggml_set_output(x);
 
 int make_divisible(int v, int divisor);
 
@@ -47,10 +50,8 @@ struct Projection {
   )
 ) */
 
-
 struct OutputBlock {
     int in_channels = 32;
-    int src_channels = 3;
     int out_channels = 16;
     
     // network params
@@ -61,7 +62,7 @@ struct OutputBlock {
     struct BatchNorm2d norm_4;
 
     void create_weight_tensors(struct ggml_context* ctx) {
-        conv_0.in_channels = in_channels + src_channels;
+        conv_0.in_channels = in_channels + 3;
         conv_0.out_channels = out_channels;
         conv_0.kernel_size = {3, 3};
         conv_0.stride = { 1, 1 };
@@ -106,8 +107,22 @@ struct OutputBlock {
         // x = torch.cat([x, s], dim=1)
         // x = self.conv(x)
         // return x
+        int W = (int)x->ne[0];
+        int H = (int)x->ne[1];
+        // int C = (int)x->ne[2];
+        // int B = (int)x->ne[3];
+        x = ggml_interpolate(ctx, x, 0, 2*W);
+        x = ggml_interpolate(ctx, x, 1, 2*H);
 
-    	return x;
+        x = ggml_concat(ctx, x, s, 2 /*dim on C*/);
+        x = conv_0.forward(ctx, x);
+        x = norm_1.forward(ctx, x);
+        x = ggml_relu(ctx, x);
+        x = conv_3.forward(ctx, x);
+        x = norm_4.forward(ctx, x);
+        x = ggml_relu(ctx, x);
+
+        return x;
     }
 };
 
@@ -145,9 +160,26 @@ struct ConvGRU {
     }
 
     ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
-        // please implement forward by your self, please !!!
+        // h = torch.zeros_like(x)
+        // r, z = self.ih(torch.cat([x, h], dim=1)).split(self.channels, dim=1)
+        // c = self.hh(torch.cat([x, h], dim=1))
+        // h = z * c
+        // return h
+        ggml_tensor_t *h = ggml_dup(ctx, x);
+        h = ggml_constant(ctx, h, 0.0f);
+        ggml_tensor_t *z = ggml_concat(ctx, x, h, 2/*dim on C */);
+        // self.ih = nn.Sequential(nn.Conv2d(channels * 2, channels * 2, kernel_size, padding=1), nn.Sigmoid())
+        z = ih_0.forward(ctx, z);
+        z = ggml_sigmoid(ctx, z);
+        z = ggml_nn_slice(ctx, z, 2/*dim on C*/, channels, 2*channels, 1/*step*/);
 
-        return x;
+        ggml_tensor_t *c = ggml_concat(ctx, x, h, 2/*dim on C */);
+        // self.hh = nn.Sequential(nn.Conv2d(channels * 2, channels, kernel_size, padding=1), nn.Tanh())
+        c = hh_0.forward(ctx, c);
+        c = ggml_tanh(ctx, c);
+        h = ggml_mul(ctx, z, c);
+
+        return h;
     }
 };
 
@@ -175,7 +207,6 @@ struct UpsamplingBlock {
     // network hparams
     int in_channels;
     int skip_channels;
-    int src_channels;
     int out_channels = 32;
 
     // network params
@@ -183,19 +214,8 @@ struct UpsamplingBlock {
     struct BatchNorm2d conv_1;
     struct ConvGRU gru;
 
-    // def __init__(self, in_channels, skip_channels, src_channels, out_channels):
-    //     super().__init__()
-    //     self.out_channels = out_channels
-    //     self.upsample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
-    //     self.conv = nn.Sequential(
-    //         nn.Conv2d(in_channels + skip_channels + src_channels, out_channels, 3, 1, 1, bias=False),
-    //         nn.BatchNorm2d(out_channels),
-    //         nn.ReLU(True),
-    //     )
-    //     self.gru = ConvGRU(out_channels // 2)
-
     void create_weight_tensors(struct ggml_context* ctx) {
-        conv_0.in_channels = in_channels + skip_channels + src_channels;
+        conv_0.in_channels = in_channels + skip_channels + 3;
         conv_0.out_channels = out_channels;
         conv_0.kernel_size = {3, 3};
         conv_0.stride = { 1, 1 };
@@ -225,26 +245,42 @@ struct UpsamplingBlock {
     }
 
     ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x, ggml_tensor_t* f, ggml_tensor_t* s) {
-    	// // please implement forward by your self, please !!!
-      //   x = self.upsample(x)
-      //   x = x[:, :, : s.size(2), : s.size(3)]
-      //   x = torch.cat([x, f, s], dim=1)
-      //   x = self.conv(x)
+        // x = self.upsample(x)
+        // x = x[:, :, : s.size(2), : s.size(3)]
+        // x = torch.cat([x, f, s], dim=1)
+        // x = self.conv(x)
 
-      //   a, b = x.split(self.out_channels // 2, dim=1)
-      //   b = self.gru(b)
-      //   x = torch.cat([a, b], dim=1)
+        // a, b = x.split(self.out_channels // 2, dim=1)
+        // b = self.gru(b)
+        // x = torch.cat([a, b], dim=1)
+        // return x
 
-      //   return x
+        int W = (int)x->ne[0];
+        int H = (int)x->ne[1];
+
+        x = ggml_interpolate(ctx, x, 0, 2*W);
+        x = ggml_interpolate(ctx, x, 1, 2*H);
+        x = ggml_cat(ctx, 3, x, f, s, 2/*dim on C*/);
+        // (conv): Sequential(
+        //     (0): Conv2d(59, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        //     (1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+        //     (2): ReLU(inplace=True)
+        // )        
+        x = conv_0.forward(ctx, x);
+        x = conv_1.forward(ctx, x);
+        x = ggml_relu(ctx, x);
+        ggml_tensor_t *a = ggml_nn_slice(ctx, x, 2/*dim on C*/, 0, out_channels, 1/*step*/);
+        ggml_tensor_t *b = ggml_nn_slice(ctx, x, 2/*dim on C*/, out_channels, 2*out_channels, 1/*step*/);
+        b = gru.forward(ctx, b);
+        x = ggml_concat(ctx, a, b, 2/*dim on C*/);
+
     	return x;
     }
 };
 
 struct BottleneckBlock {
-    // network hparams
     int channels = 128;
 
-    // network params
     struct ConvGRU gru;
 
     void create_weight_tensors(struct ggml_context* ctx) {
@@ -260,8 +296,14 @@ struct BottleneckBlock {
     }
 
     ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
-        // please implement forward by your self, please !!!
-
+        // a, b = x.split(self.channels // 2, dim=-3)
+        // b = self.gru(b)
+        // x = torch.cat([a, b], dim=-3)
+        // return x
+        ggml_tensor_t *a = ggml_nn_slice(ctx, x, 0/*dim on B*/, 0, channels, 1/*step*/);
+        ggml_tensor_t *b = ggml_nn_slice(ctx, x, 0/*dim on B*/, channels, 2*channels, 1/*step*/);
+        b = gru.forward(ctx, b);
+        x = ggml_concat(ctx, a, b, 0/*dim on B*/);
         return x;
     }
 };
@@ -287,10 +329,22 @@ struct AvgPool {
         GGML_UNUSED(prefix);
     }
 
-    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
+    // def forward(self, s0) -> List[torch.Tensor]:
+    //     s1 = self.avgpool(s0)
+    //     s2 = self.avgpool(s1)
+    //     s3 = self.avgpool(s2)
+    //     return s1, s2, s3
+    std::vector<ggml_tensor_t *> forward(struct ggml_context* ctx, ggml_tensor_t* x) {
     	// please implement forward by your self, please !!!
-
-    	return x;
+        std::vector<ggml_tensor_t *> xlist;
+        ggml_tensor_t *s1, *s2, *s3;
+        s1 = avgpool.forward(ctx, x);
+        s2 = avgpool.forward(ctx, s1);
+        s3 = avgpool.forward(ctx, s2);
+        xlist.push_back(s1);
+        xlist.push_back(s2);
+        xlist.push_back(s3);
+    	return xlist;
     }
 };
 
@@ -316,27 +370,23 @@ struct RecurrentDecoder {
         // self.decode3 = UpsamplingBlock(128, 40, 3, 80)
         decode3.in_channels = 128;
         decode3.skip_channels = 40;
-        decode3.src_channels = 3;
         decode3.out_channels = 80;
         decode3.create_weight_tensors(ctx);
 
         // self.decode2 = UpsamplingBlock(80, 24, 3, 40)
         decode2.in_channels = 80;
         decode2.skip_channels = 24;
-        decode2.src_channels = 3;
         decode2.out_channels = 40;
         decode2.create_weight_tensors(ctx);
 
         // self.decode1 = UpsamplingBlock(40, 16, 3, 32)
         decode1.in_channels = 40;
         decode1.skip_channels = 16;
-        decode1.src_channels = 3;
         decode1.out_channels = 32;
         decode1.create_weight_tensors(ctx);
 
         // self.decode0 = OutputBlock(32, 3, 16)
         decode0.in_channels = 32;
-        decode0.src_channels = 3;
         decode0.out_channels = 16;
         decode0.create_weight_tensors(ctx);
     }
@@ -345,6 +395,7 @@ struct RecurrentDecoder {
         char s[GGML_MAX_NAME];
         // snprintf(s, sizeof(s), "%s%s", prefix, "avgpool.");
         // avgpool.setup_weight_names(s);
+
         snprintf(s, sizeof(s), "%s%s", prefix, "decode4.");
         decode4.setup_weight_names(s);
         snprintf(s, sizeof(s), "%s%s", prefix, "decode3.");
@@ -366,16 +417,18 @@ struct RecurrentDecoder {
         // x1 = self.decode1(x2, f1, s1)
         // x0 = self.decode0(x1, s0)
         // return x0 #, r1, r2, r3, r4
-
-        ggml_tensor_t *s0, *s1, *s2, *s3;
+        std::vector<ggml_tensor_t *> xlist;
+        ggml_tensor_t *s1, *s2, *s3;
         ggml_tensor_t *x0, *x1, *x2, *x3, *x4;
 
-        s3 = s2 = s1 = s0 = avgpool.forward(ctx, x);
+        xlist = avgpool.forward(ctx, x);
+        s1 = xlist[0]; s2 = xlist[1]; s3 = xlist[1];
+
         x4 = decode4.forward(ctx, f4);
         x3 = decode3.forward(ctx, x4, f3, s3);
         x2 = decode2.forward(ctx, x3, f2, s2);
         x1 = decode1.forward(ctx, x2, f1, s1);
-        x0 = decode0.forward(ctx, x1, s0);
+        x0 = decode0.forward(ctx, x1, x);
 
         return x0;
     }
@@ -458,8 +511,23 @@ struct LRASPP {
     }
 
     ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
-    	// please implement forward by your self, please !!!
+        // return self.aspp1(x) * self.aspp2(x)
 
+        // self.aspp1 = nn.Sequential(
+        //     nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True)
+        // )        
+        ggml_tensor_t *x1 = aspp1_0.forward(ctx, x);
+        x1 = aspp1_1.forward(ctx, x1);
+        x1 = ggml_relu(ctx, x1);
+
+        // self.aspp2 = nn.Sequential(
+        //     nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.Sigmoid()
+        // )
+        ggml_tensor_t *x2 = aspp2_0.forward(ctx, x);
+        x2 = aspp2_1.forward(ctx, x2);
+        x2 = ggml_sigmoid(ctx, x2);
+
+        x = ggml_mul(ctx, x1, x2);
     	return x;
     }
 };
