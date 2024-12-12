@@ -164,49 +164,40 @@ struct ConvGRU {
         hh_0.setup_weight_names(s);
     }
 
-    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
-        // h = torch.zeros_like(x)
-        // r, z = self.ih(torch.cat([x, h], dim=1)).split(self.channels, dim=1)
-        // c = self.hh(torch.cat([x, h], dim=1))
-        // h = z * c
-        // return h
-        ggml_tensor_t *h = ggml_dup(ctx, x);
-        h = ggml_constant(ctx, h, 0.0f);
-        ggml_tensor_t *z = ggml_concat(ctx, x, h, 2/*dim on C */);
+    // def forward(self, x, h) -> List[torch.Tensor]:
+    //     # NOT Support traced xxxx8888 !!!
+    //     if x.size() != h.size():
+    //         h = torch.zeros_like(x)
+    //     r, z = self.ih(torch.cat([x, h], dim=1)).split(self.channels, dim=1)
+    //     c = self.hh(torch.cat([x, r * h], dim=1))
+    //     h = (1 - z) * h + z * c
+    //     return h
+    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x, ggml_tensor_t* h) {
+        if (h == NULL || ! ggml_are_same_shape(h, x)) {
+            h = ggml_dup(ctx, x);
+            h = ggml_constant(ctx, h, 0.0f);
+        }
+
+        ggml_tensor_t *r, *z, *c;
+        z = ggml_concat(ctx, x, h, 2/*dim on C */);
         // self.ih = nn.Sequential(nn.Conv2d(channels * 2, channels * 2, kernel_size, padding=1), nn.Sigmoid())
         z = ih_0.forward(ctx, z);
         z = ggml_sigmoid(ctx, z);
+        r = ggml_nn_slice(ctx, z, 2/*dim on C*/, 0, channels, 1/*step*/);
         z = ggml_nn_slice(ctx, z, 2/*dim on C*/, channels, 2*channels, 1/*step*/);
-
-        ggml_tensor_t *c = ggml_concat(ctx, x, h, 2/*dim on C */);
+        // ----------------------------------------------------------------------------------
+        c = ggml_concat(ctx, x, ggml_mul(ctx, r, h), 2/*dim on C */);
         // self.hh = nn.Sequential(nn.Conv2d(channels * 2, channels, kernel_size, padding=1), nn.Tanh())
         c = hh_0.forward(ctx, c);
         c = ggml_tanh(ctx, c);
-        h = ggml_mul(ctx, z, c);
+        ggml_tensor_t *one_z = ggml_dup(ctx, z);
+        one_z = ggml_constant(ctx, one_z, 1.0);
+        one_z = ggml_sub(ctx, one_z, z);
+        h = ggml_add(ctx, ggml_mul(ctx, one_z, h), ggml_mul(ctx, z, c));
 
         return h;
     }
 };
-
-/*
- UpsamplingBlock(
-  (upsample): Upsample(scale_factor=2.0, mode='bilinear')
-  (conv): Sequential(
-    (0): Conv2d(59, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-    (1): BatchNorm2d(32, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
-    (2): ReLU(inplace=True)
-  )
-  (gru): ConvGRU(
-    (ih): Sequential(
-      (0): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-      (1): Sigmoid()
-    )
-    (hh): Sequential(
-      (0): Conv2d(32, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-      (1): Tanh()
-    )
-  )
-) */
 
 struct UpsamplingBlock {
     // network hparams
@@ -248,8 +239,9 @@ struct UpsamplingBlock {
         snprintf(s, sizeof(s), "%s%s", prefix, "gru.");
         gru.setup_weight_names(s);
     }
+ 
 
-    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x, ggml_tensor_t* f, ggml_tensor_t* s) {
+    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x, ggml_tensor_t* f, ggml_tensor_t* s, ggml_tensor_t* r) {
         // x = self.upsample(x)
         // x = x[:, :, : s.size(2), : s.size(3)]
         // x = torch.cat([x, f, s], dim=1)
@@ -282,7 +274,8 @@ struct UpsamplingBlock {
         x = ggml_relu(ctx, x);
         ggml_tensor_t *a = ggml_nn_slice(ctx, x, 2/*dim on C*/, 0, out_channels/2, 1/*step*/);
         ggml_tensor_t *b = ggml_nn_slice(ctx, x, 2/*dim on C*/, out_channels/2, out_channels, 1/*step*/);
-        b = gru.forward(ctx, b);
+        // r = gru.forward(ctx, b, NULL);
+        b = gru.forward(ctx, b, r);
         x = ggml_concat(ctx, a, b, 2/*dim on C*/);
 
     	return x;
@@ -306,14 +299,16 @@ struct BottleneckBlock {
         gru.setup_weight_names(s);
     }
 
-    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
+
+    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x, ggml_tensor_t* r) {
         // a, b = x.split(self.channels // 2, dim=-3)
         // b = self.gru(b)
         // x = torch.cat([a, b], dim=-3)
         // return x
         ggml_tensor_t *a = ggml_nn_slice(ctx, x, 2/*dim on C*/, 0, channels/2, 1/*step*/);
         ggml_tensor_t *b = ggml_nn_slice(ctx, x, 2/*dim on C*/, channels/2, channels, 1/*step*/);
-        b = gru.forward(ctx, b);
+        // r = gru.forward(ctx, b, NULL);
+        b = gru.forward(ctx, b, r);
         x = ggml_concat(ctx, a, b, 2/*dim on C*/);
         return x;
     }
@@ -417,26 +412,44 @@ struct RecurrentDecoder {
         decode0.setup_weight_names(s);
     }
 
-    ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x, ggml_tensor_t* f1, 
-        ggml_tensor_t* f2, ggml_tensor_t* f3, ggml_tensor_t* f4) {
-        // s1, s2, s3 = self.avgpool(s0)
-        // x4 = self.decode4(f4)
-        // x3 = self.decode3(x4, f3, s3)
-        // x2 = self.decode2(x3, f2, s2)
-        // x1 = self.decode1(x2, f1, s1)
-        // x0 = self.decode0(x1, s0)
-        // return x0 #, r1, r2, r3, r4
+    ggml_tensor_t * forward(struct ggml_context* ctx, ggml_tensor_t* x, 
+        ggml_tensor_t* f1, ggml_tensor_t* f2, ggml_tensor_t* f3, ggml_tensor_t* f4,
+        ggml_tensor_t* r1, ggml_tensor_t* r2, ggml_tensor_t* r3, ggml_tensor_t* r4)
+    {
         std::vector<ggml_tensor_t *> xlist;
         ggml_tensor_t *s1, *s2, *s3;
         ggml_tensor_t *x0, *x1, *x2, *x3, *x4;
 
+        x4 = decode4.forward(ctx, f4, r4);
+        {
+            x4 = ggml_cont(ctx, x4);
+            ggml_set_name(x4, "R4");
+            ggml_set_output(x4);
+        }
+
         xlist = avgpool.forward(ctx, x);
         s1 = xlist[0]; s2 = xlist[1]; s3 = xlist[2];
 
-        x4 = decode4.forward(ctx, f4);
-        x3 = decode3.forward(ctx, x4, f3, s3);
-        x2 = decode2.forward(ctx, x3, f2, s2);
-        x1 = decode1.forward(ctx, x2, f1, s1);
+        x3 = decode3.forward(ctx, x4, f3, s3, r3);
+        {
+            x3 = ggml_cont(ctx, x3);
+            ggml_set_name(x3, "R3");
+            ggml_set_output(x3);
+        }
+
+        x2 = decode2.forward(ctx, x3, f2, s2, r2);
+        {
+            x2 = ggml_cont(ctx, x2);
+            ggml_set_name(x2, "R2");
+            ggml_set_output(x2);
+        }
+
+        x1 = decode1.forward(ctx, x2, f1, s1, r1);
+        {
+            x1 = ggml_cont(ctx, x1);
+            ggml_set_name(x1, "R1");
+            ggml_set_output(x1);
+        }
         x0 = decode0.forward(ctx, x1, x);
 
         return x0;
@@ -467,16 +480,6 @@ struct LRASPP {
 
     struct AdaptiveAvgPool2d aspp2_0;
     struct Conv2d aspp2_1;
-
-    // def __init__(self, in_channels, out_channels):
-    //     super().__init__()
-    //     # 960, 128
-    //     self.aspp1 = nn.Sequential(
-    //         nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True)
-    //     )
-    //     self.aspp2 = nn.Sequential(
-    //         nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.Sigmoid()
-    //     )
 
     void create_weight_tensors(struct ggml_context* ctx) {
         aspp1_0.in_channels = in_channels;
@@ -557,9 +560,6 @@ struct SqueezeExcitation {
     struct Conv2d fc1;
     struct Conv2d fc2;
 
-    // self.fc1 = torch.nn.Conv2d(input_channels, squeeze_channels, 1)
-    // self.fc2 = torch.nn.Conv2d(squeeze_channels, input_channels, 1)
-
     void create_weight_tensors(struct ggml_context* ctx) {
         // assert _make_divisible(input_channels//4, 8) == squeeze_channels
         int squeeze_channels = make_divisible(input_channels/4, 8);
@@ -593,16 +593,6 @@ struct SqueezeExcitation {
         fc2.setup_weight_names(s);
     }
 
-    // def _scale(self, input: Tensor) -> Tensor:
-    //     scale = self.avgpool(input)
-    //     scale = self.fc1(scale)
-    //     scale = self.activation(scale)
-    //     scale = self.fc2(scale)
-    //     return self.scale_activation(scale)
-
-    // def forward(self, input: Tensor) -> Tensor:
-    //     scale = self._scale(input)
-    //     return scale * input
     ggml_tensor_t* forward(struct ggml_context* ctx, ggml_tensor_t* x) {
         ggml_tensor_t *scale = avgpool.forward(ctx, x);
         scale = fc1.forward(ctx, scale);
@@ -612,16 +602,7 @@ struct SqueezeExcitation {
         scale = ggml_hardsigmoid(ctx, scale);
 
         x = ggml_mul(ctx, x, scale); // use (x * scale) instead of (scale * x) for auto brocast
-        // se x    f32 [240, 135, 72, 1], 
-        // se scale1    f32 [1, 1, 72, 1], 
-        // se scale2    f32 [1, 1, 24, 1], 
-        // se scale3    f32 [1, 1, 72, 1], 
 
-        // tensor [input] size: [1, 72, 135, 240], min: 0.0, max: 4.819407, mean: 0.691895
-        // tensor [scale 1] size: [1, 72, 1, 1], min: 0.0, max: 2.504586, mean: 0.691895
-        // tensor [scale 2] size: [1, 24, 1, 1], min: 0.0, max: 6.000372, mean: 0.972454
-        // tensor [scale 3] size: [1, 72, 1, 1], min: 0.5, max: 1.0, mean: 0.82587
-        // --------------------------------------------------------------------------------
         return x;
     }
 };
@@ -692,9 +673,7 @@ struct Conv2dNormActivation {
     }
 };
 
-
 struct InvertedResidual {
-    // network hparams
     int input_channels;
     int kernel;
     int expanded_channels;
@@ -839,7 +818,6 @@ struct InvertedResidual {
     }
 };
 
-
 struct MobileNetV3LargeEncoder {
     // network params
     struct Normalize normal;
@@ -865,7 +843,6 @@ struct MobileNetV3LargeEncoder {
         features_0.groups = 1;
         features_0.activation_layer = 2; // 1 -- ReLU, 2 -- Hardswish
         features_0.create_weight_tensors(ctx);
-
 
         // # input_channels, kernel, expanded_channels, out_channels,
         // # use_se: bool, # activation: str,
@@ -1035,10 +1012,6 @@ struct MobileNetV3LargeEncoder {
         features_1_15[14].dilation = 2;
         features_1_15[14].create_weight_tensors(ctx);
 
-        // for (int i = 0; i < 15; i++) {
-        //     features_1_15[i].create_weight_tensors(ctx);
-        // }
-
         // (16): Conv2dNormActivation(
         //   (0): Conv2d(160, 960, kernel_size=(1, 1), stride=(1, 1), bias=False)
         //   (1): BatchNorm2d(960, eps=0.001, momentum=0.01, affine=True, track_running_stats=True)
@@ -1162,45 +1135,67 @@ struct MattingNetwork : GGMLNetwork {
         project_mat.setup_weight_names(s);
     }
 
+    ggml_tensor_t* resize_pad(struct ggml_context* ctx, ggml_tensor_t* x) {
+        int W = (int)x->ne[0];
+        int H = (int)x->ne[1];
+
+        if (H > MAX_H || W > MAX_W) { // need resize ?
+            float s = (float)MAX_H/H;
+            if (s < (float)MAX_W/W) {
+                s = (float)MAX_W/W;
+            }
+            int SH = s * H; // new width
+            int SW = s * W; // new height
+            x = ggml_interpolate(ctx, x, 1 /*dim on H */, SH);
+            x = ggml_interpolate(ctx, x, 0 /*dim on W */, SW);
+        }
+
+        // Need pad ?        
+        W = (int)x->ne[0];
+        H = (int)x->ne[1];
+        int r_pad = (MAX_TIMES - (W % MAX_TIMES)) % MAX_TIMES;
+        int l_pad = r_pad/2; r_pad = r_pad - l_pad;
+        int b_pad = (MAX_TIMES - (H % MAX_TIMES)) % MAX_TIMES;
+        int t_pad = b_pad/2; b_pad = b_pad - t_pad;
+
+        if (l_pad > 0 || r_pad > 0 || t_pad > 0 || b_pad > 0) {
+            x = ggml_replication_pad2d(ctx, x, l_pad, r_pad, t_pad, b_pad);
+        }
+
+        return x;
+    }
+
     ggml_tensor_t* forward(ggml_context_t* ctx, int argc, ggml_tensor_t* argv[]) {
         GGML_UNUSED(argc);
-        ggml_tensor_t *x = argv[0];
+        ggml_tensor_t *x, *R1, *R2, *R3, *R4, *f1, *f2, *f3, *f4, *out, *mask;
 
-        // f1, f2, f3, f4 = self.backbone(src)
-        // f4 = self.aspp(f4)
-        // hid = self.decoder(src, f1, f2, f3, f4)
-        // src_residual, mask = self.project_mat(hid).split([3, 1], dim=-3)
-        // mask = mask.clamp(0.0, 1.0)
-        // output = torch.cat((src, mask), dim=1)
-        // return output
+        x = argv[0];
+        R1 = argv[1];
+        R2 = argv[2];
+        R3 = argv[3];
+        R4 = argv[4];
+        int W2 = (int)x->ne[0];
+        int H2 = (int)x->ne[1];
 
-        ggml_tensor_t *f1, *f2, *f3, *f4;
+        x = resize_pad(ctx, x);
+        // backbone
         {
-
-        }
-        std::vector<ggml_tensor_t *>xlist = backbone.forward(ctx, x);
-        f1 = xlist[0]; f2 = xlist[1]; f3 = xlist[2]; f4 = xlist[3];
-        {
-
+            std::vector<ggml_tensor_t *>xlist = backbone.forward(ctx, x);
+            f1 = xlist[0]; f2 = xlist[1]; f3 = xlist[2]; f4 = xlist[3];
         }
         f4 = aspp.forward(ctx, f4);
+        // extract mask
         {
-
-        }
-        ggml_tensor_t *hid = decoder.forward(ctx, x, f1, f2, f3, f4);
-        {
-
-        }
-        ggml_tensor_t *out = project_mat.forward(ctx, hid);
-        {
-
-        }
-        ggml_tensor_t *mask = ggml_nn_slice(ctx, out, 2 /*dim*/, 3, 4, 1/*step*/);
-        mask = ggml_clamp(ctx, mask, 0.0, 1.0);
-        {
-
+            ggml_tensor_t *hid = decoder.forward(ctx, x, f1, f2, f3, f4, R1, R2, R3, R4);
+            out = project_mat.forward(ctx, hid);
+            mask = ggml_nn_slice(ctx, out, 2 /*dim*/, 3, 4, 1/*step*/);
+            mask = ggml_clamp(ctx, mask, 0.0, 1.0);
         }
         out = ggml_concat(ctx, x, mask, 2/*dim*/);
+        if (out->ne[0] != W2 || out->ne[1] != H2) {
+            out = ggml_nn_slice(ctx, out, 0, 0, W2, 1/*step*/);
+            out = ggml_nn_slice(ctx, out, 1, 0, H2, 1/*step*/);
+        }
 
         return out;
     }
@@ -1211,13 +1206,19 @@ struct VideoMatteNetwork {
     MattingNetwork net;
     GGMLModel model;
 
+    TENSOR *R1 = NULL;
+    TENSOR *R2 = NULL;
+    TENSOR *R3 = NULL;
+    TENSOR *R4 = NULL;
+
     int init(int device) {
         // -----------------------------------------------------------------------------------------
         net.set_device(device);
         net.start_engine();
-        net.dump();
+        // net.dump();
 
-        check_point(model.preload("models/video_matte_f32.gguf") == RET_OK);
+        check_point(model.preload("models/video_matte_f16.gguf") == RET_OK);
+        load();
 
         return RET_OK;
     }
@@ -1227,14 +1228,60 @@ struct VideoMatteNetwork {
     }
 
     TENSOR *forward(TENSOR *input_tensor) {
-        TENSOR *argv[1];
+        TENSOR *argv[5];
         argv[0] = input_tensor ;
+        argv[1] = R1;
+        argv[2] = R2;
+        argv[3] = R3;
+        argv[4] = R4;
 
-        load();
-        return net.engine_forward(ARRAY_SIZE(argv), argv);
+        TENSOR *R = net.engine_forward(ARRAY_SIZE(argv), argv);
+        // Update R1/R2/R3/R4
+        {
+            TENSOR *x;
+
+            x = net.get_output_tensor((char *)"R1");
+            if (tensor_valid(x)) {
+                tensor_destroy(R1);
+                R1 = tensor_slice_chan(x, x->chan/2, x->chan);
+                tensor_destroy(x);
+                // tensor_show((char *)"R1", R1);
+            }
+
+            x = net.get_output_tensor((char *)"R2");
+            if (tensor_valid(x)) {
+                tensor_destroy(R2);
+                R2 = tensor_slice_chan(x, x->chan/2, x->chan);
+                tensor_destroy(x);
+                // tensor_show((char *)"R2", R2);
+            }
+
+            x = net.get_output_tensor((char *)"R3");
+            if (tensor_valid(x)) {
+                tensor_destroy(R3);
+                R3 = tensor_slice_chan(x, x->chan/2, x->chan);
+                tensor_destroy(x);
+                // tensor_show((char *)"R3", R3);
+            }
+
+            x = net.get_output_tensor((char *)"R4");
+            if (tensor_valid(x)) {
+                tensor_destroy(R4);
+                R4 = tensor_slice_chan(x, x->chan/2, x->chan);
+                tensor_destroy(x);
+                // tensor_show((char *)"R4", R4);
+            }
+        }
+
+        return R;
     }
 
     void exit() {
+        tensor_destroy(R4);
+        tensor_destroy(R3);
+        tensor_destroy(R2);
+        tensor_destroy(R1);
+
         model.clear();
         net.stop_engine();
     }

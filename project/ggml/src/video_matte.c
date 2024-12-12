@@ -22,7 +22,6 @@ int make_divisible(int v, int divisor) {
 int video_matte_predict(VideoMatteNetwork *matte_net, char *input_file, char *output_file)
 {
     TENSOR *input_tensor, *output_tensor;
-
     {
         input_tensor = tensor_load_image(input_file, 0 /*input_with_alpha*/);
         check_tensor(input_tensor);
@@ -34,9 +33,9 @@ int video_matte_predict(VideoMatteNetwork *matte_net, char *input_file, char *ou
         tensor_destroy(input_tensor);
 
         // TENSOR *xxxx_test;
-        // xxxx_test = matte_net->net.get_output_tensor("I1");
+        // xxxx_test = matte_net->net.get_output_tensor("R1");
         // if (tensor_valid(xxxx_test)) {
-        //     tensor_show("********************** I1", xxxx_test);
+        //     tensor_show("********************** R1", xxxx_test);
         //     tensor_destroy(xxxx_test);
         // }
 
